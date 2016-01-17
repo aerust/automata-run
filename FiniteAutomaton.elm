@@ -3,8 +3,10 @@ module FiniteAutomaton where
 import Debug
 import Dict exposing (Dict)
 import Html exposing (..)
+import Json.Decode as JsDec
 import Html.Attributes exposing (..)
 import Html.Events exposing (..)
+import Html.Shorthand.Event exposing (..)
 --import Html.Events.Extra exposing (..)
 import StartApp.Simple as StartApp
 import String exposing (..)
@@ -40,7 +42,11 @@ type alias Model =
     -- text boxes for adding
     , stateAdderValue : String
     , symbolAdderValue : String
-    , transitionFunctionAdderValue : (String, String, String)
+    , transitionFunctionAdderValue :
+        { fromState : Maybe State
+        , symbol : Maybe Symbol
+        , toState : Maybe State
+        }
     }
 
 initialModel : Model
@@ -52,7 +58,11 @@ initialModel =
     , acceptStates = []
     , stateAdderValue = ""
     , symbolAdderValue = ""
-    , transitionFunctionAdderValue = ("", "", "")
+    , transitionFunctionAdderValue =
+        { fromState = Nothing
+        , symbol = Nothing
+        , toState = Nothing
+        }
     }
 
 -- View
@@ -61,7 +71,8 @@ view : Signal.Address Action -> Model -> Html
 view addr model =
 --   text "<~ ~ ~ Automata run ~ ~ ~ Build a finite automaton! ~ ~ ~>"
     let
-        d = Debug.log "start state: " model.startState
+        d1 = Debug.log "start state: " model.startState
+        d2 = Debug.log "transition function " model.transitionFunctionAdderValue
     in
     div
         []
@@ -110,7 +121,81 @@ view addr model =
             []
             (List.map ((viewState addr) model) model.states)
         , text <| "Start state: " ++ toString model.startState ++ ", Accept states: " ++ toString model.acceptStates
+        , p
+            []
+            [ text "The Transition Function"
+            ]
+        , text "Add a transition from ( "
+        , select
+            [ onChange
+                (JsDec.at ["target", "value"] JsDec.string)
+                (\str -> maybeString str |> UpdateTransitionFunctionAdderFromState |> Signal.message addr)
+            ]
+            (option [ selected False, value "" ] [text "select a state"] :: (model.states 
+                |> List.map
+                (\st ->
+                    option
+                        [ selected False ]
+                        [ text st ]
+
+                )
+            ))
+        , text " , "
+        , select
+            [ onChange
+                (JsDec.at ["target", "value"] JsDec.string)
+                (\str -> maybeChar str |> UpdateTransitionFunctionAdderSymbol |> Signal.message addr)
+            ]
+            (option [ selected False, value "" ] [text "select a symbol"] :: (model.alphabet
+                |> List.map
+                (\al ->
+                    option
+                        [ selected False ]
+                        [ text (String.fromChar al) ]
+                )
+            ))
+        , text " ) to ( "
+        , select
+            [
+                onChange
+                    (JsDec.at ["target", "value"] JsDec.string)
+                    (\str -> maybeString str |> UpdateTransitionFunctionAdderToState |> Signal.message addr)
+            ]
+            (option [ selected False, value "" ] [text "select a state"] :: (model.states
+                |> List.map
+                (\st ->
+                    option
+                        [ selected False ]
+                        [ text st]
+                )
+            ))
+        , text " ) "
+        , button
+            [ onClick addr NoOp ]
+            [ text "Add" ]
         ]
+
+maybeChar : String -> Maybe Char
+maybeChar str =
+    let maybe = String.uncons str
+    in
+       case maybe of
+           Just (char, _) ->
+               Just char
+           Nothing ->
+               Nothing
+
+maybeString : String -> Maybe String
+maybeString str =
+    if (String.length str > 0) then Just str else Nothing
+
+getMaybe : Maybe a -> a
+getMaybe maybe =
+    case maybe of
+        Just x ->
+            x
+        Nothing ->
+            Debug.crash "Tried to get a Maybe that was Nothing"
 
 onInput : Signal.Address a -> (String -> a) -> Attribute
 onInput address contentToValue =
@@ -147,17 +232,27 @@ viewState addr model state =
         []
         [ text state
         , text " "
-        , button
-            [ onClick addr (UpdateStartState (Just state))
-            , disabled ((Just state) == model.startState) 
-            ]
-            [ text "make start state" ]
+        , let
+            (label, action) = 
+                if ((Just state) == model.startState) then
+                   ("unset start state", UpdateStartState Nothing)
+                else
+                    ("set start state", UpdateStartState (Just state))
+            in
+                button
+                    [onClick addr action]
+                    [text label]
         , text " "
-        , button
-            [ onClick addr (AddAcceptState state)
-            , disabled (List.member state model.acceptStates)
-            ]
-            [ text "make accept state" ]
+        , let
+            (label, action) =
+                if List.member state model.acceptStates then
+                   ("unset accept state", RemoveAcceptState state)
+                else
+                    ("set accept state", AddAcceptState state)
+            in
+                button
+                    [onClick addr action]
+                    [text label]
         , text " "
         , button
             [ onClick addr (RemoveState state) ]
@@ -179,8 +274,11 @@ type Action
     | UpdateStartState (Maybe State)            -- 9
     | AddAcceptState State                      --10
     | RemoveAcceptState State                   --11
-    | UpdateSymbolAdderValue String
-    | UpdateStateAdderValue String
+    | UpdateSymbolAdderValue String             --12
+    | UpdateStateAdderValue String              --13
+    | UpdateTransitionFunctionAdderFromState (Maybe State)
+    | UpdateTransitionFunctionAdderSymbol (Maybe Symbol)
+    | UpdateTransitionFunctionAdderToState (Maybe State)
 
 update : Action -> Model -> Model
 update action model =
@@ -254,6 +352,23 @@ update action model =
             }
         AddAcceptState state ->
             { model | acceptStates = if List.member state model.states then model.acceptStates ++ [state] else Debug.crash "Must be a state" }
+        RemoveAcceptState state ->
+            { model | acceptStates = remove state model.acceptStates }
+        UpdateTransitionFunctionAdderFromState state ->
+            let
+                adder = model.transitionFunctionAdderValue
+            in
+               { model | transitionFunctionAdderValue = { adder | fromState = state } }
+        UpdateTransitionFunctionAdderSymbol symbol ->
+            let
+                adder = model.transitionFunctionAdderValue
+            in
+                { model | transitionFunctionAdderValue = { adder | symbol = symbol } }
+        UpdateTransitionFunctionAdderToState state ->
+            let
+                adder = model.transitionFunctionAdderValue
+            in
+               { model | transitionFunctionAdderValue = { adder | toState = state } }
         _ ->
             Debug.crash "TODO" -- TODO: implement
 
