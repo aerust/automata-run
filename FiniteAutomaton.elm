@@ -109,6 +109,7 @@ view addr model =
         , ul
             []
             (List.map ((viewState addr) model) model.states)
+        , text <| "Start state: " ++ toString model.startState ++ ", Accept states: " ++ toString model.acceptStates
         ]
 
 onInput : Signal.Address a -> (String -> a) -> Attribute
@@ -151,6 +152,12 @@ viewState addr model state =
             , disabled ((Just state) == model.startState) 
             ]
             [ text "make start state" ]
+        , text " "
+        , button
+            [ onClick addr (AddAcceptState state)
+            , disabled (List.member state model.acceptStates)
+            ]
+            [ text "make accept state" ]
         , text " "
         , button
             [ onClick addr (RemoveState state) ]
@@ -238,7 +245,15 @@ update action model =
         UpdateStateAdderValue text ->
             { model | stateAdderValue = text }
         UpdateStartState maybeState ->
-            { model | startState = maybeState }
+            { model | startState =
+                case maybeState of
+                    Just state ->
+                        if List.member state model.states then maybeState else Debug.crash "Must be a state"
+                    Nothing ->
+                        Nothing
+            }
+        AddAcceptState state ->
+            { model | acceptStates = if List.member state model.states then model.acceptStates ++ [state] else Debug.crash "Must be a state" }
         _ ->
             Debug.crash "TODO" -- TODO: implement
 
